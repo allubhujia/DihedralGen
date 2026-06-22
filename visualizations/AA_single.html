@@ -1,0 +1,94 @@
+<div id="3dmolviewer_17789293406076143"  style="position: relative; width: 600px; height: 400px;">
+        <p id="3dmolwarning_17789293406076143" style="background-color:#ffcccc;color:black">3Dmol.js failed to load for some reason.  Please check your browser console for error messages.<br></p>
+        </div>
+<script>
+
+var loadScriptAsync = function(uri){
+  return new Promise((resolve, reject) => {
+    //this is to ignore the existence of requirejs amd
+    var savedexports, savedmodule;
+    if (typeof exports !== 'undefined') savedexports = exports;
+    else exports = {}
+    if (typeof module !== 'undefined') savedmodule = module;
+    else module = {}
+
+    var tag = document.createElement('script');
+    tag.src = uri;
+    tag.async = true;
+    tag.onload = () => {
+        exports = savedexports;
+        module = savedmodule;
+        resolve();
+    };
+  var firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+});
+};
+
+if(typeof $3Dmolpromise === 'undefined') {
+$3Dmolpromise = null;
+  $3Dmolpromise = loadScriptAsync('https://cdn.jsdelivr.net/npm/3dmol@2.5.4/build/3Dmol-min.js');
+}
+
+var viewer_17789293406076143 = null;
+var warn = document.getElementById("3dmolwarning_17789293406076143");
+if(warn) {
+    warn.parentNode.removeChild(warn);
+}
+$3Dmolpromise.then(function() {
+viewer_17789293406076143 = $3Dmol.createViewer(document.getElementById("3dmolviewer_17789293406076143"),{backgroundColor:"white"});
+viewer_17789293406076143.zoomTo();
+	viewer_17789293406076143.addModel("ATOM      1  N   MOL A   1       8.367   2.684  -2.584  1.00  0.00            N  \nATOM      2  H   MOL A   1       8.851   2.048  -1.966  1.00  0.00            H  \nATOM      3  H   MOL A   1       7.687   2.242  -3.141  1.00  0.00            H  \nATOM      4  H   MOL A   1       8.995   3.050  -3.252  1.00  0.00            H  \nATOM      5  C   MOL A   1       7.590   3.756  -1.959  1.00  0.00            C  \nATOM      6  H   MOL A   1       8.313   4.325  -1.379  1.00  0.00            H  \nATOM      7  C   MOL A   1       7.172   4.734  -3.001  1.00  0.00            C  \nATOM      8  H   MOL A   1       8.111   5.116  -3.452  1.00  0.00            H  \nATOM      9  H   MOL A   1       6.601   4.191  -3.764  1.00  0.00            H  \nATOM     10  H   MOL A   1       6.595   5.590  -2.621  1.00  0.00            H  \nATOM     11  C   MOL A   1       6.512   3.228  -0.990  1.00  0.00            C  \nATOM     12  O   MOL A   1       5.850   2.263  -1.281  1.00  0.00            O  \nATOM     13  N   MOL A   1       6.535   3.771   0.263  1.00  0.00            N  \nATOM     14  H   MOL A   1       7.111   4.607   0.454  1.00  0.00            H  \nATOM     15  C   MOL A   1       5.864   3.158   1.444  1.00  0.00            C  \nATOM     16  H   MOL A   1       5.175   2.297   1.227  1.00  0.00            H  \nATOM     17  C   MOL A   1       6.891   2.614   2.358  1.00  0.00            C  \nATOM     18  H   MOL A   1       7.511   3.320   2.904  1.00  0.00            H  \nATOM     19  H   MOL A   1       6.352   1.971   3.064  1.00  0.00            H  \nATOM     20  H   MOL A   1       7.636   2.014   1.692  1.00  0.00            H  \nATOM     21  C   MOL A   1       4.944   4.203   2.150  1.00  0.00            C  \nATOM     22  O   MOL A   1       4.132   3.722   2.972  1.00  0.00            O  \nATOM     23  O   MOL A   1       4.991   5.437   2.005  1.00  0.00            O  \nCONECT    1    2    3    4    5\nCONECT    2    3    4\nCONECT    3    4    5\nCONECT    5    6    7   11\nCONECT    7    8    9   10\nCONECT    8    9   10\nCONECT    9   10\nCONECT   11   12   13\nCONECT   13   14   15\nCONECT   15   16   17   21\nCONECT   17   18   19   20\nCONECT   18   19   20\nCONECT   19   20\nCONECT   21   22   23\nEND","pdb");
+	viewer_17789293406076143.setStyle({"stick": {"radius": 0.15, "colorscheme": "Jmol"}, "sphere": {"scale": 0.25, "colorscheme": "Jmol"}});
+	viewer_17789293406076143.addLabel("0:N",{"position": {"x": 8.367283821105957, "y": 2.6843056678771973, "z": -2.5844404697418213}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("14.007",{"position": {"x": 8.367283821105957, "y": 3.2843056678771974, "z": -2.5844404697418213}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("1:H",{"position": {"x": 8.850997924804688, "y": 2.0480780601501465, "z": -1.9660283327102661}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 8.850997924804688, "y": 2.6480780601501466, "z": -1.9660283327102661}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("2:H",{"position": {"x": 7.686703681945801, "y": 2.24161958694458, "z": -3.141045331954956}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 7.686703681945801, "y": 2.84161958694458, "z": -3.141045331954956}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("3:H",{"position": {"x": 8.995149612426758, "y": 3.049611806869507, "z": -3.252122640609741}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 8.995149612426758, "y": 3.649611806869507, "z": -3.252122640609741}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("4:C",{"position": {"x": 7.590163230895996, "y": 3.756376266479492, "z": -1.959359049797058}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("12.011",{"position": {"x": 7.590163230895996, "y": 4.356376266479492, "z": -1.959359049797058}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("5:H",{"position": {"x": 8.313213348388672, "y": 4.325192451477051, "z": -1.379310131072998}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 8.313213348388672, "y": 4.92519245147705, "z": -1.379310131072998}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("6:C",{"position": {"x": 7.172491073608398, "y": 4.734255790710449, "z": -3.000831127166748}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("12.011",{"position": {"x": 7.172491073608398, "y": 5.334255790710449, "z": -3.000831127166748}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("7:H",{"position": {"x": 8.110878944396973, "y": 5.116491794586182, "z": -3.4516725540161133}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 8.110878944396973, "y": 5.716491794586181, "z": -3.4516725540161133}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("8:H",{"position": {"x": 6.601278781890869, "y": 4.190645694732666, "z": -3.763720750808716}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 6.601278781890869, "y": 4.790645694732666, "z": -3.763720750808716}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("9:H",{"position": {"x": 6.595320224761963, "y": 5.589762210845947, "z": -2.620677947998047}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 6.595320224761963, "y": 6.189762210845947, "z": -2.620677947998047}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("10:C",{"position": {"x": 6.511861801147461, "y": 3.228052854537964, "z": -0.9903080463409424}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("12.011",{"position": {"x": 6.511861801147461, "y": 3.828052854537964, "z": -0.9903080463409424}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("11:O",{"position": {"x": 5.849914073944092, "y": 2.263115406036377, "z": -1.2813830375671387}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("15.999",{"position": {"x": 5.849914073944092, "y": 2.863115406036377, "z": -1.2813830375671387}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("12:N",{"position": {"x": 6.535428047180176, "y": 3.770979642868042, "z": 0.26300811767578125}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("14.007",{"position": {"x": 6.535428047180176, "y": 4.370979642868042, "z": 0.26300811767578125}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("13:H",{"position": {"x": 7.111268520355225, "y": 4.6072893142700195, "z": 0.45369279384613037}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 7.111268520355225, "y": 5.207289314270019, "z": 0.45369279384613037}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("14:C",{"position": {"x": 5.8643293380737305, "y": 3.157869338989258, "z": 1.444419026374817}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("12.011",{"position": {"x": 5.8643293380737305, "y": 3.757869338989258, "z": 1.444419026374817}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("15:H",{"position": {"x": 5.1750946044921875, "y": 2.296807289123535, "z": 1.2274484634399414}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 5.1750946044921875, "y": 2.8968072891235352, "z": 1.2274484634399414}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("16:C",{"position": {"x": 6.890841484069824, "y": 2.613586187362671, "z": 2.358306884765625}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("12.011",{"position": {"x": 6.890841484069824, "y": 3.213586187362671, "z": 2.358306884765625}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("17:H",{"position": {"x": 7.511330604553223, "y": 3.320216178894043, "z": 2.9040708541870117}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 7.511330604553223, "y": 3.920216178894043, "z": 2.9040708541870117}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("18:H",{"position": {"x": 6.351966857910156, "y": 1.970601201057434, "z": 3.064211845397949}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 6.351966857910156, "y": 2.570601201057434, "z": 3.064211845397949}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("19:H",{"position": {"x": 7.635842323303223, "y": 2.0135087966918945, "z": 1.6919363737106323}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("1.008",{"position": {"x": 7.635842323303223, "y": 2.6135087966918946, "z": 1.6919363737106323}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("20:C",{"position": {"x": 4.944421291351318, "y": 4.202709674835205, "z": 2.150005340576172}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("12.011",{"position": {"x": 4.944421291351318, "y": 4.802709674835205, "z": 2.150005340576172}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("21:O",{"position": {"x": 4.131580352783203, "y": 3.7216005325317383, "z": 2.9715142250061035}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("15.999",{"position": {"x": 4.131580352783203, "y": 4.321600532531738, "z": 2.9715142250061035}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("22:O",{"position": {"x": 4.991406440734863, "y": 5.436763763427734, "z": 2.0048818588256836}, "fontSize": 10, "fontColor": "white", "backgroundOpacity": 0.6, "backgroundColor": "black"});
+	viewer_17789293406076143.addLabel("15.999",{"position": {"x": 4.991406440734863, "y": 6.036763763427734, "z": 2.0048818588256836}, "fontSize": 11, "fontColor": "#FFFF00", "backgroundOpacity": 0.0, "alignment": "center"});
+	viewer_17789293406076143.addLabel("AA  (23 atoms, 32 bonds)",{"position": {"x": 0, "y": 0, "z": 0}, "fontSize": 14, "fontColor": "white", "backgroundOpacity": 0.0, "inFront": true, "fixed": true, "alignment": "topLeft"});
+	viewer_17789293406076143.zoomTo();
+	viewer_17789293406076143.setBackgroundColor("#1a1a2e");
+viewer_17789293406076143.render();
+});
+</script>

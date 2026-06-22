@@ -1,0 +1,80 @@
+# Fix Collapsed Atom Predictions in TrajectoryMLP
+
+The predicted molecules have all their atoms squished into a tight cluster. This happens because the model uses only plain MSE loss, which encourages it to predict "average" positions near the center. We need to add **physics-aware loss terms** and improve the architecture to preserve realistic molecular geometry.
+
+## Root Cause Analysis
+
+The current `TrajectoryMLP` takes a 64-dim node embedding and outputs `300 × 3 = 900` values per atom. With only MSE loss, the model:
+1. Has no incentive to maintain proper **bond lengths** between connected atoms
+2. Has no penalty for atoms **collapsing on top of each other** (steric clashes)
+3. Uses no information about the **initial atom positions** — it generates coordinates purely from the embedding
+
+## Proposed Changes
+
+### [MODIFY] [train_mlp.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/IISER/trajectory_prediction/train_mlp.py)
+
+#### 1. Add Physics-Aware Loss Functions
+
+Three new loss terms alongside MSE:
+
+| Loss | What it does | Why it helps |
+|------|-------------|--------------|
+| **Bond Length Loss** | Penalizes deviation of predicted bond lengths from ground-truth bond lengths | Keeps bonded atoms at correct distances |
+| **Repulsion Loss** | Penalizes non-bonded atom pairs that get too close (< 0.12 nm) | Prevents atom collapse / steric clashes |
+| **Velocity Smoothness Loss** | Penalizes large jumps in position between consecutive frames | Prevents jittery, unphysical motion |
+
+Combined loss:
+```
+total_loss = MSE + 5.0 * bond_loss + 2.0 * repulsion_loss + 0.5 * smoothness_loss
+```
+
+The bond loss weight is highest because maintaining correct bond geometry is the most critical fix for the collapse problem.
+
+#### 2. Improve the MLP Architecture
+
+- Add a **residual connection** that anchors predictions to the initial atom positions (from `graph.pos`). Instead of predicting absolute coordinates from scratch, the MLP predicts **displacements** (deltas) from the initial position. This gives the model a huge head start — it already knows roughly where each atom should be.
+- Add an extra hidden layer (512 units) for more capacity
+- Keep existing dropout for regularization
+
+#### 3. Adjust Training Hyperparameters
+
+| Parameter | Old | New | Why |
+|-----------|-----|-----|-----|
+| Learning rate | 1e-3 | 5e-4 | Slower learning with physics losses to prevent instability |
+| Epochs | 300 | 500 | More epochs needed to learn the finer geometric details |
+| Patience | 20 | 30 | Give the physics losses more time to take effect |
+| Batch size | 4 | 4 | Keep the same |
+
+---
+
+### [MODIFY] [predict_trajectory.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/IISER/trajectory_prediction/predict_trajectory.py)
+
+- Update the `TrajectoryMLP` initialization to match the new architecture (residual connection needs initial positions)
+- Pass `graph.pos` to the MLP during inference so it can add displacements to the starting coordinates
+
+---
+
+## How to Run (After Changes)
+
+```bash
+# Step 1: Retrain the MLP (will take longer with physics losses)
+python trajectory_prediction/train_mlp.py
+
+# Step 2: Predict trajectory for a peptide
+python trajectory_prediction/predict_trajectory.py --peptide AC
+
+# Step 3: Visualize it
+python scripts/visualization.py --peptide AC --source predicted --frame 50
+```
+
+> [!IMPORTANT]
+> You **must retrain** the model from scratch after these changes. The old `trajectory_mlp.pt` checkpoint won't work because the architecture is different (residual connection).
+
+## Verification Plan
+
+### Visual Check
+- Run visualization for the same peptide `AC` at frame 50 with `--source real` and `--source predicted` side by side
+- The predicted molecule should have proper bond lengths and no collapsed atoms
+
+### Numerical Check
+- The training logs will now print the breakdown of each loss component (MSE, bond, repulsion, smoothness) so you can monitor that all are decreasing

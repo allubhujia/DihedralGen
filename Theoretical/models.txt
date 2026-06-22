@@ -1,0 +1,428 @@
+gnn.py (MolecularGNN) takes your peptide molecule represented as a graph — atoms are nodes with features (like atom type, charge, coordinates), and bonds are edges — and runs message passing.
+Each GCNConv layer lets every atom "talk" to its neighbors, aggregating information about its local chemical environment. After 3 layers, each atom's representation encodes not just its own features but the structure of its neighborhood up to 3 hops away.
+So the output is a set of informed per-atom embeddings.
+
+
+encoder.py (MolecularEncoder) takes those per-atom embeddings and collapses them into a single fixed-size vector representing the entire molecule's state.
+It does this via global mean pooling — literally averaging all atom embeddings — followed by a small MLP to project into your desired embedding dimension.
+This is critical because your downstream models (time-lagged autoencoder, diffusion model) need a fixed-size input representing x(t),
+and molecules can have varying numbers of atoms.
+
+FOR ENCODER:
+
+Node Features (atoms)
+        ↓
+MolecularGNN (message passing)
+        ↓
+Node embeddings
+        ↓
+global_mean_pool
+        ↓
+Graph embedding
+        ↓
+MLP projection
+        ↓
+Final embedding
+
+The use of AA_trajectory.html is to visualize movement over time.
+
+While AA_single.html shows you only one static snapshot of the molecule, AA_trajectory.html shows you a sequence of snapshots (frames) from the simulation.
+
+Why you need it:
+See the Dynamics: Molecular simulation is about how atoms move. This file allows you to see the molecule "in action"—how it bends, rotates, and vibrates across different time points.
+Verify Stability: You can check if the chemical bonds are staying intact as the molecule moves. In our processing.py, we fixed the "flickering" issue (where bonds would randomly disappear), and this file proves that the bonds are now stable across the whole simulation.
+Compare Conformations: You can see different "shapes" (conformations) the molecule took at Frame 0 vs Frame 100 vs Frame 200 all on one page.
+
+Changing the index value like graphs[1], graphs[2], etc., is how you access the different snapshots stored in that list.
+
+However, there is a small difference depending on which function you use:
+
+1. If you use load_single_trajectory (Current visualization.py)
+Because this function only loads one molecule (like AA), changing the index changes the Time/Frame:
+
+graphs[0]: The molecule at the very beginning (Frame 0).
+graphs[1]: The molecule a bit later in time (Frame 100).
+To see a different molecule (like AF): You use the terminal command: python scripts/visualization.py --peptide AF
+2. If you use load_split (Current processing.py)
+This function loads many molecules and puts them into one big flat list.
+
+If you set max_frames_per_traj=5, then:
+graphs[0] to graphs[4] are the 5 frames of the first molecule (AA).
+graphs[5] to graphs[9] are the 5 frames of the second molecule (AE).
+graphs[10] to graphs[14] are the 5 frames of the third molecule (AF).
+
+
+
+To run the visualization for a specific molecule: (This is for AE peptide)
+python scripts/visualization.py --peptide AE
+
+These three fields are the core of how a Graph Neural Network (GNN) "sees" the molecule. Since you're looking at Peptide AV (Alanine-Valine), here is what those specific numbers represent:
+
+1. x=torch.Size([29, 8]) (Node Features)
+This tells the model what each atom is.
+
+29: The number of atoms in the AV peptide.
+8: The feature vector for each atom. In our processing.py script, these 8 slots are:
+Indices 0, 1, 2: The [x, y, z] coordinates of the atom (so the model knows its location).
+Indices 3, 4, 5, 6, 7: A one-hot encoding of the element. Only one of these will be "1" at a time:
+[1,0,0,0,0] = Hydrogen (H)
+[0,1,0,0,0] = Carbon (C)
+[0,0,1,0,0] = Nitrogen (N)
+[0,0,0,1,0] = Oxygen (O)
+[0,0,0,0,1] = Sulfur (S)
+2. edges=torch.Size([2, 80]) (Connectivity)
+This tells the model how the atoms are connected (the chemical bonds).
+
+2: It is an "edge list" where the first row is the "source" atom and the second row is the "destination" atom.
+80: The number of directed edges. Since chemical bonds are undirected, every bond is listed twice (A→B and B→A). This means your AV peptide has 40 actual chemical bonds.
+3. pos=torch.Size([29, 3]) (Geometric Positions)
+This is a "pure" version of the atom coordinates.
+
+29: The number of atoms.
+3: The [x, y, z] coordinates in nanometers (nm).
+Why is this separate from x? Many modern AI models (like Equivariant GNNs) need the positions kept separate from the "identity" features (x) so they can calculate distances and angles during the learning process.
+In summary:
+
+x = Identity + Position (What and Where)
+edges = Topology (Who is connected to whom)
+pos = Geometry (Exact coordinates for math operations)
+
+FUTURE PLANS
+→ An SE(3)-equivariant GNN respects 3D geometry by design. When you rotate the molecule,
+the internal representations rotate accordingly, and scalar outputs (like energy or embedding norms) stay exactly the same
+
+
+Why these losses? (direct)
+
+1. Graph Reconstruction Loss (BCE on adjacency)
+
+Ensures decoder rebuilds the original peptide graph structure (edges)
+Penalizes missing or wrong connections
+Directly measures: “Is reconstructed graph same as input?”
+
+2. Embedding Similarity Loss (Cosine)
+
+Ensures encoded representations preserve structural/biological similarity
+Similar peptides → similar embeddings
+Helps evaluate “how close graphs are in latent space”, not just edge-wise
+
+👉 Reconstruction = structure correctness
+👉 Similarity = semantic closeness
+
+
+ For visualization: 
+# python scripts/visualization.py --peptide AF
+
+
+python trajectory_prediction/predict_trajectory.py --peptide AC
+
+python scripts/visualization.py --peptide AC --frame 50 --source predicted
+
+the problem with the collapsing of the trajectory molecule is 
+The atoms collapse because of a fundamental architectural limitation:
+
+Your MLP receives a single 64-dim embedding per atom and must predict 300 frames × 3 coordinates = 900 values
+from it. That embedding is computed from the first frame only — it has zero temporal information.
+So the model has no idea how the molecule should move over time.
+
+When faced with this impossible task, MSE loss causes the model to do the safest thing
+mathematically: predict the average position across all 300 frames for every frame. 
+The average of all positions is near the center of mass → all atoms get pulled toward the center → collapse.
+
+MSE tells the model where atoms should be (the actual target coordinates)
+Bond/Repulsion/Spread tell the model what not to do (don't compress, don't overlap, maintain structure)
+
+MSE Loss (weight 1.0) — Matches predicted coordinates to ground-truth coordinates
+Bond Length Loss (weight 5.0) — Keeps bonded atoms at the correct distance from each other
+Repulsion Loss (weight 15.0) — Prevents non-bonded atoms from getting closer than 0.15 nm
+Spread Loss (weight 10.0) — Prevents the whole molecule from shrinking by matching the radius of gyration to ground truth
+Smoothness Loss (weight 0.5) — Prevents jerky/sudden jumps between consecutive frames
+
+
+1. **MSE Loss**
+   - In: `pred_traj [num_atoms, 300, 3]` + `target_traj [num_atoms, 300, 3]`
+   - Out: `scalar`
+
+2. **Bond Length Loss**
+   - In: `pred_traj [num_atoms, 300, 3]` + `target_traj [num_atoms, 300, 3]` + `edge_index [2, num_edges]`
+   - Out: `scalar`
+
+3. **Repulsion Loss**
+   - In: `pred_traj [num_atoms, 300, 3]` + `edge_index [2, num_edges]`
+   - Out: `scalar`
+
+4. **Spread Loss**
+   - In: `pred_traj [num_atoms, 300, 3]` + `target_traj [num_atoms, 300, 3]`
+   - Out: `scalar`
+
+5. **Smoothness Loss**
+   - In: `pred_traj [num_atoms, 300, 3]`
+   - Out: `scalar`
+
+All 5 scalars are then combined as:
+```
+total = 1.0*MSE + 5.0*Bond + 15.0*Repulsion + 10.0*Spread + 0.5*Smoothness
+```
+→ `scalar` → backpropagated
+
+#--------------------------------------------------------------------------------------------------------------------------------------------------
+ 
+to take the cartesian coordiantes and save it as a pdb file open it in pyMol visualization Tool
+biopandas to save it as pdb file
+plot of cartesian (x,y,z) for one atom and compare the output predict trajecotry and input trajectory 
+try using matplotlib for it
+compare the com of differnet frames and plot it
+
+trajectory_analysis/ — New Analysis Scripts
+============================================
+
+1. plot_atom_trajectory.py (HIGH PRIORITY)
+   - Matplotlib x/y/z per-atom plot comparing predicted vs ground-truth
+   - py3Dmol HTML animation with Play/Pause/Stop, frame slider, speed control
+   - Side-by-side Ground Truth vs Predicted molecule viewers
+   - Output: .png plot + .html animation
+   - Run: python trajectory_analysis/plot_atom_trajectory.py --peptide AC --atom 0
+
+2. plot_com.py
+   - Matplotlib Center of Mass (COM) comparison across 300 frames
+   - Mass-weighted COM using atomic masses (H, C, N, O, S)
+   - 4 subplots: COM-x, COM-y, COM-z, Euclidean distance
+   - Output: .png plot
+   - Run: python trajectory_analysis/plot_com.py --peptide AC
+
+3. save_pdb.py
+   - Uses biopandas to export trajectories as multi-MODEL PDB files
+   - Saves both ground-truth and predicted trajectories
+   - Directly openable in PyMOL for trajectory playback
+   - Output: 2x .pdb files (ground_truth + predicted)
+   - Run: python trajectory_analysis/save_pdb.py --peptide AC
+
+Dependencies: pip install biopandas
+
+pip install biopandas
+python trajectory_analysis/plot_atom_trajectory.py --peptide AC --atom 0
+python trajectory_analysis/plot_com.py --peptide AC
+python trajectory_analysis/save_pdb.py --peptide AC
+
+# 1. Train the newly fixed architecture
+python trajectory_prediction/train_mlp.py
+
+# 2. Get the clean predictions
+python trajectory_prediction/predict_trajectory.py --peptide AC
+
+# 3. View the fixed results
+python trajectory_analysis/plot_atom_trajectory.py --peptide AC --atom 0
+
+KL = Kullback-Leibler Divergence
+KL measures how different your learned distribution is from a normal distribution N(0,1)
+
+
+use the graph embeddings encoder and the trajectory input  fetch it into the cVAE (just encoder) and then 
+the output should go to decoder
+normalizing the ground_truth for visualization   
+undermind -> literature survey
+#--------------------------------------------------------------------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Yes, we are intentionally throwing away the global tumbling/drifting, because predicting it is virtually
+ impossible and ruins the model.
+
+Here is the fundamental reason why we must compare the prediction against the Kabsch-aligned Ground 
+Truth (GT), rather than the raw unaligned GT:
+
+1. The "Raw Input" contains random noise (Tumbling)
+In a molecular dynamics simulation, the molecule is floating in a box. Over 300 frames, it does two 
+things:
+
+Internal Dynamics: It folds, bonds vibrate, and angles bend. (This is the physics we want the model to 
+learn).
+Rigid Body Motion: The entire molecule randomly tumbles, rotates, and drifts across the simulation box. 
+(This is random noise).
+2. Why we train on Kabsch-Aligned GT
+If you force the model to predict the Raw Unaligned GT, it has to waste all of its brainpower trying to 
+guess exactly how the molecule randomly tumbled and rotated in 3D space. Because tumbling is chaotic, 
+the model fails to predict it, the MSE loss explodes, and the model completely ignores learning the 
+internal dynamics (which is why your predictions were collapsing to a straight line or a single point 
+earlier).
+
+By applying Kabsch alignment to the "Actual Input" before it goes into the loss function, we 
+permanently strip away the random tumbling. We are telling the model: "Forget about where the molecule 
+drifted in the box. Just predict its internal shape."
+
+3. Why we plot against Kabsch-Aligned GT
+Because the model was trained exclusively to predict the Kabsch-aligned shape, its output will always 
+be centered. If you plotted the model's prediction against the Raw Unaligned GT, the plot would look 
+completely wrong—the raw GT would be drifting off-screen, while the prediction stays perfectly centered,
+ even if their internal shapes matched perfectly!
+
+Conclusion: The Kabsch-aligned GT is the true "ground truth" for the internal physics of the molecule. 
+Comparing the predicted trajectory against the Kabsch-aligned GT is the standard, scientifically 
+correct way to evaluate generative molecular models.
+
+SAMPLE OUTPUTS:
+--- Epoch 108 Tracking (Atom 0) ---
+Frame 0   | GT: [0.5094, 0.5787, -0.3100] | Pred: [0.4868, 0.6000, -0.2803] | Diff: [0.0226, 0.0213, 0.0297]
+Frame 50  | GT: [0.5509, 0.5642, -0.3080] | Pred: [0.4867, 0.6035, -0.2994] | Diff: [0.0642, 0.0393, 0.0086]
+Frame 100 | GT: [0.4842, 0.5682, -0.3119] | Pred: [0.4960, 0.6072, -0.2989] | Diff: [0.0118, 0.0390, 0.0130]
+Frame 150 | GT: [0.5217, 0.5340, -0.3124] | Pred: [0.4919, 0.6111, -0.3041] | Diff: [0.0298, 0.0771, 0.0083]
+Epoch 108/300 | Total: 0.510347 | MSE: 0.008240 (X:0.008359 Y:0.008135 Z:0.008227) | KL: 0.5000 (β=1.000) 
+| Dist: 0.0029 | Vel: 0.0063 | Val MSE: 0.007959 (X:0.008012 Y:0.007796 Z:0.008068)
+
+The reason your training loss is increasing linearly while the validation MSE stays flat is due to KL 
+Annealing combined with the way your loss components are being tracked in the plot.
+
+Here is exactly what is happening in your train_mlp.py script:
+
+1. KL Annealing Weight (beta_kl)
+In your training loop, you are using a technique called KL Annealing to slowly introduce the KL 
+divergence penalty:
+
+python
+# KL annealing: β ramps from 0 → 1 over first 100 epochs
+beta_kl = min(1.0, epoch / 100.0)
+Because beta_kl linearly increases from 0.0 at epoch 1 to 1.0 at epoch 100, the contribution of the KL 
+loss to your total training loss increases linearly during the first 100 epochs.
+
+2. Free-Bits Clamp
+Your KL divergence is computed using a "free bits" formulation:
+
+python
+loss_kl = kl_divergence_free_bits(mu, logvar, free_bits=0.5)
+This guarantees that the loss_kl value is never lower than 0.5. As your beta_kl reaches 1.0 at epoch 100, 
+the beta_kl * loss_kl term adds at least 0.5 to your total loss. You can see this exactly reflected in 
+your graph: the training loss line ramps up and plateaus right around 0.5 after epoch 100.
+
+3. Plotting Different Metrics
+The blue line (Train Loss) is plotting the batch_loss, which is the grand total of everything: MSE + 
+(beta_kl * KL) + DistMSE + VelMSE. Because the beta_kl * KL term is growing, the total line grows.
+The orange line (Validation Loss) is only plotting loss_mse (coordinate MSE). It does not include the 
+KL penalty.
+
+for velocity->
+
+Even though the model is trained to minimize the coordinate MSE, predicting individual frames independently 
+can result in "jittery" or unsmooth trajectories. By explicitly punishing the model when the difference 
+between consecutive frames doesn't match the difference in the ground truth, it forces the model to 
+generate smooth, temporally consistent motion that physically makes sense. 
+
+The Kabsch algorithm is a mathematical method used to optimally align two 3D molecular structures. 
+It calculates the best possible way to translate (move) and rotate one set of coordinates so that it 
+perfectly overlaps with a reference structure, minimizing the difference (RMSD) between them.
+
+What is it doing here?
+In a molecular dynamics (MD) simulation, a molecule moves in two distinct ways:
+
+Internal Dynamics: The molecule folds, its bonds stretch, and angles bend. This is the actual physics you 
+want the neural network to learn.
+Rigid Body Motion: The entire molecule randomly drifts (translates) and tumbles (rotates) across the 3D 
+simulation box. This is essentially chaotic noise.
+The Problem: If you feed the raw (unaligned) ground truth into your model, the neural network is forced 
+to predict both the folding and the random tumbling. Because tumbling is chaotic and unpredictable, the 
+model gets confused, the loss function (MSE) explodes, and the model completely fails to learn the 
+internal physics (often collapsing and just predicting a straight line).
+
+The Solution (Kabsch Alignment): By applying the Kabsch algorithm to your ground truth data before 
+training, you are completely removing the random translation and rotation. You are essentially "pinning" 
+the molecule to the center of the screen so that the only thing moving is the internal folding and 
+vibrating.
+
+Why you use it:
+
+For Training: You train the model on the Kabsch-aligned data so the neural network can say, "Okay, I don't 
+need to guess where the molecule drifted in the box; I only have to learn how the bonds and angles change." 
+This makes training stable.
+For Visualization: Because the model was trained to predict a "pinned" molecule, it will output a pinned 
+trajectory. Therefore, you must compare the predicted output against the Kabsch-aligned ground truth. If
+ you compared the prediction against the raw unaligned ground truth, the raw molecule would be flying off 
+ the screen while the prediction sits in the center, making it look like a failure
+
+ The Kabsch algorithm is a mathematical method used to optimally align two 3D molecular structures. 
+ It calculates the best possible way to translate (move) and rotate one set of coordinates so that it 
+ perfectly overlaps with a reference structure, minimizing the difference (RMSD) between them.
+ The Problem: If you feed the raw (unaligned) ground truth into your model, the neural network is forced 
+ to predict both the folding and the random tumbling. Because tumbling is chaotic and unpredictable, 
+ the model gets confused, the loss function (MSE) explodes,
+
+ If you force the model to perfectly organize the latent space from Epoch 1, the model panics. It focuses 
+ entirely on the KL Divergence and completely ignores the actual molecule shapes (MSE). The model 
+ "collapses" and learns nothing. -> KL annealing
+
+ free bit clamp -> used for not pusshing kl to 0
+
+AD -> try running the model through this predicting its coordiantes (has two peptides) AD-> 
+Alanine dipeptide
+try getting predicted calcualte then phi and phsi dihedral angles -> take the distribution of it and compare with gt (gt vs pt)
+architecture 
+scale the coordinates back (check if all the peptides are in the same box )
+#--------------------------------------------------------------------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Your training dataset has 208 different dipeptides (AA, AC, AE, AF, ..., YY), and each one has its own 
+unique dihedral trajectory. The diffusion model is trained on ALL of them together in a single model. 
+So when you ask it to generate a trajectory, it needs to know "generate a trajectory for which peptide?"
+— that's what the encoder does. It reads the molecular graph of a peptide (its atoms, bonds, element 
+types) and compresses it into a 64-dimensional vector that captures the peptide's chemical identity and 
+structural properties. This vector is fed into every layer of the denoiser so that the model can produce 
+peptide-specific trajectories rather than some generic average across all 208 peptides. Without the 
+encoder, you'd have a single model that generates the same trajectory regardless of whether you ask it 
+about Alanine-Cysteine or Glycine-Glycine — which would be meaningless. The encoder is essentially the 
+model's way of "seeing" the molecule before deciding how it should move. That said, you could technically
+replace the GNN encoder with something simpler like a one-hot encoding of the peptide name (since you 
+only have 208 discrete peptides), but the GNN approach is more general because it can handle unseen 
+peptides at inference time by reading their graph structure directly, whereas a one-hot approach cannot 
+generalize beyond the training set.
+
+# 1. Retrain (will take a while — 500 epochs max)
+cd /mnt/c/VIT_CHENNAI/Computer_science/Internship/IISER
+python3 "trajectory_prediction(main)/train_diffusion.py"
+
+# 2. Re-predict for AC
+python3 "trajectory_prediction(main)/predict_diffusion.py" --peptide AC
+
+# 3. Re-plot to compare
+python3 "trajectory_analysis(main)/dihedral_comparison.py" --peptide AC
+
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------- 
+
+to compute kl divergence as a metric for this graphs (distribution)
+try AD3 two peptide bonds having different molecules and just ONE Alanine at the center
+how similar is the work to that paper(diffusion paper)
+
+
+#--------------------------------------------------------------------------------------------------------------------------------------------------
+First, part of that rising validation number is just measurement noise rather than the model actually getting worse: my sliced-Wasserstein loss
+draws fresh random projections every time it's computed, so the Val SW value naturally wobbles from epoch to epoch even when the model is 
+stable. Looking at your smoke-test numbers, the val line bounces around (0.135 → 0.146 → 0.136 → 0.155 → 0.162 → 0.144), and that jitter is 
+largely those random projections, not real degradation — a steadily climbing line would worry me, but a noisy one that only drifts up slightly 
+is mostly this. Second, part of it is genuine overfitting, since Train SW keeps dropping while Val SW trends up, which is the classic 
+signature; but that smoke test ran on only 40 molecules, and with so little data a model overfits quickly, so on the full 208-molecule run this 
+gap should be much smaller.
+
+It's still OK in practice, because the training already protects you from this: I save the checkpoint at the lowest validation loss seen 
+(your Best val SW: 0.1247), not the final epoch, so even if val creeps up later you keep the best model rather than the overfit one — and 
+early stopping halts training once val stops improving, so you don't waste epochs. If the validation loss does clearly climb on the full run, 
+the fixes in order would be to first reduce the metric noise (raise --num_proj to something like 128 and fix the random seed for the validation 
+projections so the number is comparable across epochs, which alone may make the "increase" vanish), then add more regularization 
+(higher dropout or weight decay), and finally reduce model capacity (fewer Transformer layers or a smaller d_model, since the model may be a 
+bit large for ~200 molecules). My recommendation is to run the full training first and watch the real curve, because right now we're judging 
+off a 40-molecule toy run that overfits by design; if the full run shows a clean upward trend, I'll apply the noise-reduction fix first since 
+it's the most likely culprit.
+
+1) python -m trajectory_pre_.train_diffusion 
+
+2) python -m trajectory_pre_.predict_trajectory --peptide AD-3 --samples 5
+
+3) cp trajectory_pre_/predictions/AD-3/* trajectory_pdb_files/AD-3/
+python -m "trajectory_analysis(main).dihedral_comparison" --peptide AD-3
+
+Yes — runs biased Langevin MD with a force field every step phyiscs in paper
+
+
+#--------------------------------------------------------------------------------------------------------------------------------------------------   
+
+1) pass the model on test set later to check the loss of it
+2) 50 molecules separate validation rest split into train and test set (80/20)
+
+
+
