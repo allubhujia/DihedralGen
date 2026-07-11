@@ -34,7 +34,7 @@ fi
 # 2. Diffusion Prediction
 echo ""
 echo "▶ STEP 2: Running Diffusion Model Prediction..."
-python "${BASE_DIR}/trajectory_prediction(main)/predict_diffusion.py" --peptide "${PEPTIDE}"
+python "${BASE_DIR}/trajectory_pre_/predict_trajectory.py" --peptide "${PEPTIDE}"
 if [ $? -ne 0 ]; then
     echo "❌ Prediction failed. Aborting pipeline."
     exit 1

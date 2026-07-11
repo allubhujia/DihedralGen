@@ -52,3 +52,9 @@ test_output.txt
 Thumbs.db
 .vscode/
 .idea/
+
+
+# ──────────────────────────────────────────────
+# Locally generated presentation content
+# ──────────────────────────────────────────────
+presentation_content.md
