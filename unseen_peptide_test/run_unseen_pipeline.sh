@@ -2,8 +2,9 @@
 
 # ==============================================================================
 # Unseen Peptide Pipeline Orchestrator
-# This script downloads an unseen peptide from HuggingFace, runs the diffusion 
-# model to predict its trajectory, and generates Ramachandran and Histogram plots.
+# This script downloads an unseen peptide from HuggingFace, runs the Transformer
+# trajectory model to predict its dihedral distribution, and generates
+# Ramachandran and histogram plots.
 # ==============================================================================
 
 if [ -z "$1" ]; then
@@ -31,18 +32,24 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 2. Diffusion Prediction
+# 2. Trajectory Prediction
 echo ""
-echo "▶ STEP 2: Running Diffusion Model Prediction..."
+echo "▶ STEP 2: Running Trajectory Model Prediction..."
 python "${BASE_DIR}/trajectory_pre_/predict_trajectory.py" --peptide "${PEPTIDE}"
 if [ $? -ne 0 ]; then
     echo "❌ Prediction failed. Aborting pipeline."
     exit 1
 fi
 
-# 3. Analysis & Plotting
+# 3. Stage predictions where dihedral_comparison.py expects them.
+# predict_trajectory.py writes to trajectory_pre_/predictions/{PEPTIDE}/, but
+# dihedral_comparison.py reads from trajectory_pdb_files/{PEPTIDE}/ — copy across.
+mkdir -p "${BASE_DIR}/trajectory_pdb_files/${PEPTIDE}"
+cp "${BASE_DIR}/trajectory_pre_/predictions/${PEPTIDE}/"* "${BASE_DIR}/trajectory_pdb_files/${PEPTIDE}/"
+
+# 4. Analysis & Plotting
 echo ""
-echo "▶ STEP 3: Generating Analysis Plots..."
+echo "▶ STEP 4: Generating Analysis Plots..."
 python "${BASE_DIR}/trajectory_analysis(main)/dihedral_comparison.py" --peptide "${PEPTIDE}"
 if [ $? -ne 0 ]; then
     echo "❌ Plotting failed."

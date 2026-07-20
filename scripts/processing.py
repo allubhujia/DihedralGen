@@ -34,7 +34,7 @@ import glob
 import numpy as np
 import torch
 from torch_geometric.data import Data
-from typing import List, Optional
+from typing import List
 
 
 # ──────────────────────────────────────────────────────────────
@@ -104,8 +104,6 @@ def build_edge_index_from_positions(positions: np.ndarray,
     Returns:
         edge_index: [2, num_edges] LongTensor, already undirected
     """
-    num_atoms = positions.shape[0]
-
     # Compute all pairwise distances at once using broadcasting
     diff = positions[:, None, :] - positions[None, :, :]  # [N, N, 3]
     dist = np.linalg.norm(diff, axis=-1)                  # [N, N]
@@ -232,5 +230,46 @@ def load_molecule(npz_path: str,
     )
 
     return graph
+
+
+def load_split(data_dir: str,
+               split: str = "train",
+               max_molecules: int = None,
+               verbose: bool = True) -> List[Data]:
+    """Load every dipeptide in one split (train/val/test) as a list of PyG graphs.
+
+    Each molecule contributes a single graph built from its first trajectory
+    frame (see load_molecule). Used by models/pipeline_auto.py (Stage-1
+    autoencoder training/validation) and scripts/visualization.py.
+
+    Args:
+        data_dir:      path to the dataset root, e.g. "timewarp_data/2AA-complete"
+        split:         "train", "val", or "test"
+        max_molecules: cap on how many molecules to load (None = all)
+        verbose:       print a per-file progress line
+
+    Returns:
+        List of PyG Data objects, one per molecule.
+    """
+    split_dir = os.path.join(data_dir, split)
+    npz_files = sorted(glob.glob(os.path.join(split_dir, "*-traj-arrays.npz")))
+    if max_molecules is not None:
+        npz_files = npz_files[:max_molecules]
+
+    graphs = []
+    for npz_path in npz_files:
+        pdb_path = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
+        if not os.path.exists(pdb_path):
+            if verbose:
+                print(f"  ⚠ Skipping {os.path.basename(npz_path)}: no matching PDB.")
+            continue
+        graph = load_molecule(npz_path, pdb_path)
+        graphs.append(graph)
+        if verbose:
+            print(f"  ✓ Loaded {graph.peptide_id}: {graph.x.shape[0]} atoms")
+
+    if verbose:
+        print(f"✓ {split}: {len(graphs)} molecules loaded from {split_dir}")
+    return graphs
 
 

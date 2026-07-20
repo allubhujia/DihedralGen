@@ -258,8 +258,9 @@ def main():
     print("\n🎉 Preprocessing Complete!")
     print(f"The AD-3 dataset ({split} split) is now ready.")
     print(f"\nNext steps:")
-    print(f"  1. python trajectory_prediction(main)/predict_diffusion.py --peptide AD-3")
-    print(f"  2. python trajectory_analysis(main)/dihedral_comparison.py --peptide AD-3")
+    print(f"  1. python trajectory_pre_/predict_trajectory.py --peptide AD-3")
+    print(f"  2. cp trajectory_pre_/predictions/AD-3/* trajectory_pdb_files/AD-3/")
+    print(f"  3. python \"trajectory_analysis(main)/dihedral_comparison.py\" --peptide AD-3")
 
 
 if __name__ == "__main__":

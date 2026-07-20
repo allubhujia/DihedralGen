@@ -273,6 +273,32 @@ def main():
     parser.add_argument("--max_val", type=int, default=87)
     parser.add_argument("--num_frames", type=int, default=300)
     parser.add_argument("--noise_dim", type=int, default=8)
+    # ── Regularization / generalization knobs ──────────────────────────────
+    # These fight the train↔val/test gap (overfitting) on the small (208-peptide)
+    # training set. Defaults are raised from the original run.
+    parser.add_argument("--dropout", type=float, default=0.2,
+                        help="Transformer dropout (was 0.1). Higher = more regularization.")
+    parser.add_argument("--weight_decay", type=float, default=1e-4,
+                        help="AdamW weight decay (was 1e-5). Higher = more regularization.")
+    parser.add_argument("--embed_noise", type=float, default=0.15,
+                        help="Std of Gaussian jitter added to the (frozen) molecule "
+                             "conditioning embedding during TRAINING ONLY, as a fraction "
+                             "of each dim's batch std. Forces the generator to map nearby "
+                             "embeddings to similar distributions → smoother interpolation "
+                             "to unseen peptides. 0 disables it.")
+    # ── Optional GNN encoder fine-tuning ───────────────────────────────────
+    parser.add_argument("--finetune_encoder", action="store_true",
+                        help="Unfreeze the GNN encoder and fine-tune it at a small LR "
+                             "(--encoder_lr) during trajectory training, so embeddings adapt "
+                             "to the generation task. OFF by default: it can help embeddings "
+                             "but also adds capacity to overfit the same 208 peptides, so "
+                             "always compare val/test KL with and without it. When enabled, "
+                             "the tuned encoder is saved to best_encoder_finetuned.pt and "
+                             "auto-loaded by predict_trajectory.py.")
+    parser.add_argument("--encoder_lr", type=float, default=1e-5,
+                        help="LR for the encoder when --finetune_encoder is set. Kept far "
+                             "smaller than --lr so the pretrained representation is nudged, "
+                             "not destroyed.")
     args = parser.parse_args()
 
     torch.manual_seed(42)
@@ -290,20 +316,34 @@ def main():
     if not os.path.exists(encoder_path):
         print(f"Error: {encoder_path} not found."); return
     gnn_encoder.load_state_dict(torch.load(encoder_path, map_location=device, weights_only=True))
-    gnn_encoder.eval()
-    for p in gnn_encoder.parameters():
-        p.requires_grad = False
-    print("✓ Loaded GNN encoder (frozen).")
+    if args.finetune_encoder:
+        gnn_encoder.train()
+        for p in gnn_encoder.parameters():
+            p.requires_grad = True
+        print(f"✓ Loaded GNN encoder (FINE-TUNING enabled, encoder_lr={args.encoder_lr}).")
+    else:
+        gnn_encoder.eval()
+        for p in gnn_encoder.parameters():
+            p.requires_grad = False
+        print("✓ Loaded GNN encoder (frozen).")
 
     model = TrajectorySeqModel(
         mol_embed_dim=64, d_model=128, nhead=4, num_layers=4,
-        dim_feedforward=256, num_frames=args.num_frames, dropout=0.1,
+        dim_feedforward=256, num_frames=args.num_frames, dropout=args.dropout,
         noise_dim=args.noise_dim,
     ).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"✓ TrajectorySeqModel initialized ({n_params:,} trainable params)")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    if args.finetune_encoder:
+        optimizer = torch.optim.AdamW(
+            [
+                {"params": model.parameters(), "lr": args.lr},
+                {"params": gnn_encoder.parameters(), "lr": args.encoder_lr},
+            ],
+            lr=args.lr, weight_decay=args.weight_decay)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=15)
 
@@ -333,32 +373,50 @@ def main():
     print("=" * 78)
     print(f"  Loss: Sliced-Wasserstein ({args.num_proj} projections) in 4-D sin/cos space")
     print(f"  Epochs: {args.epochs}  Patience: {args.patience}  noise_dim: {args.noise_dim}")
+    print(f"  Regularization → dropout: {args.dropout}  weight_decay: {args.weight_decay}  "
+          f"embed_noise: {args.embed_noise}")
+    print(f"  Encoder: {'FINE-TUNED @ lr=' + str(args.encoder_lr) if args.finetune_encoder else 'frozen'}")
     print("=" * 78 + "\n")
 
-    def encode(batch):
-        with torch.no_grad():
+    def encode(batch, grad=False):
+        ctx = torch.enable_grad() if grad else torch.no_grad()
+        with ctx:
             nz = gnn_encoder.encode_nodes(batch.x, batch.edge_index)
             return global_mean_pool(nz, batch.batch)
 
     for epoch in range(1, args.epochs + 1):
         model.train()
+        if args.finetune_encoder:
+            gnn_encoder.train()
         tot = 0.0
         for batch in train_loader:
             batch = batch.to(device)
             optimizer.zero_grad()
-            mol_z = encode(batch)
+            mol_z = encode(batch, grad=args.finetune_encoder)
             B = mol_z.size(0)
+            # Conditioning-embedding augmentation (train only): jitter each molecule
+            # embedding by Gaussian noise scaled to that dim's batch std. This is the
+            # main anti-overfitting lever — it stops the generator from memorizing a
+            # brittle one-to-one map from the 208 training embeddings to their exact
+            # distributions, and forces a smooth map that interpolates to unseen peptides.
+            if args.embed_noise > 0:
+                std = mol_z.detach().std(dim=0, keepdim=True, unbiased=False)  # [1, 64]; 0 if B==1
+                mol_z = mol_z + torch.randn_like(mol_z) * args.embed_noise * std
             gt = batch.y_dihedrals.view(B, args.num_frames, 4)
             pred = model(mol_z)
             loss = sliced_wasserstein_loss(pred, gt, args.num_proj)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            clip_params = (list(model.parameters()) + list(gnn_encoder.parameters())
+                           if args.finetune_encoder else list(model.parameters()))
+            torch.nn.utils.clip_grad_norm_(clip_params, 1.0)
             optimizer.step()
             tot += loss.item()
         avg_train = tot / len(train_loader)
         train_hist.append(avg_train)
 
         model.eval()
+        if args.finetune_encoder:
+            gnn_encoder.eval()
         v_tot = 0.0
         with torch.no_grad():
             for batch in val_loader:
@@ -385,6 +443,9 @@ def main():
             best_val = avg_val
             epochs_no_improve = 0
             torch.save(model.state_dict(), save_path)
+            if args.finetune_encoder:
+                enc_save_path = os.path.join(out_dir, "best_encoder_finetuned.pt")
+                torch.save(gnn_encoder.state_dict(), enc_save_path)
             print(f"  ✓ Best model saved (val SW {best_val:.5f})")
         else:
             epochs_no_improve += 1

@@ -122,7 +122,6 @@ MolGraph-AE/
 ├── 📄 README.md                       # This file
 ├── 📄 .gitignore                      # Ignores venv, data, caches, generated outputs
 ├── 📄 encoder.pt / decoder.pt         # Stage-1 trained checkpoints (consumed by Stage 2)
-├── 📄 test_output.txt                 # Sample Stage-1 pipeline log
 │
 ├── 🧠 models/                         # Stage-1 neural network modules
 │   ├── gnn.py                         # MolecularGNN — stacked GCNConv message passing

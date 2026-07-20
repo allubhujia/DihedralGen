@@ -118,11 +118,14 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     print(f"  Saving outputs to: {out_dir}\n")
 
-    # ── GNN encoder (frozen)
+    # ── GNN encoder (prefer a fine-tuned encoder if training produced one, so the
+    #    embeddings match what the trajectory model was trained against).
     gnn_encoder = MolecularEncoder(8, 64, 32).to(device)
-    encoder_path = os.path.join(base_dir, "encoder.pt")
+    finetuned_path = os.path.join(base_dir, "trajectory_pre_", "best_encoder_finetuned.pt")
+    encoder_path = finetuned_path if os.path.exists(finetuned_path) else os.path.join(base_dir, "encoder.pt")
     gnn_encoder.load_state_dict(torch.load(encoder_path, map_location=device, weights_only=True))
     gnn_encoder.eval()
+    print(f"  ✓ Loaded encoder: {os.path.basename(encoder_path)}")
 
     graph = load_molecule(npz_path, pdb_path)
     graph.batch = torch.zeros(graph.x.size(0), dtype=torch.long)

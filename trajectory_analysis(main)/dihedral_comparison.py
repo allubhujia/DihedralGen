@@ -27,7 +27,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 from scipy.ndimage import gaussian_filter
 from scipy.stats import gaussian_kde, entropy
 
@@ -49,7 +48,7 @@ PI_LABELS = ["-π", "-¾π", "-½π", "-¼π", "0", "¼π", "½π", "¾π", "π"
 #  1. Dihedral computation from PDB backbone
 # ──────────────────────────────────────────────────────────────
 
-from scripts.backbone_utils import parse_backbone_from_pdb, compute_phi_psi_from_positions, compute_dihedral
+from scripts.backbone_utils import parse_backbone_from_pdb, compute_phi_psi_from_positions
 
 def compute_phi_psi_from_pdb(pdb_path):
     """Compute phi, psi in degrees from a multi-MODEL PDB ground truth file.

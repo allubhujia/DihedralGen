@@ -3,7 +3,7 @@ backbone_utils.py — Backbone dihedral angle computation utilities.
 
 Provides functions to parse PDB backbone atoms and compute phi/psi dihedral
 angles from MD trajectory position arrays. Used by both training
-(train_diffusion.py) and prediction (predict_diffusion.py) scripts.
+(train_trajectory.py) and prediction (predict_trajectory.py) scripts.
 
 Handles two cases:
   1. Standard 2AA dipeptides: 2 residues, each with full N/CA/C backbone

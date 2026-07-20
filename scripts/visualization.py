@@ -38,14 +38,14 @@ import sys
 import torch
 import numpy as np
 from collections import defaultdict
-from typing import List, Optional
+from typing import Optional
 
 from torch_geometric.data import Data
 
 # ── Import constants from processing.py ──────────────────────
 # Add parent directory so we can import from scripts/
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from processing import ELEMENT_TO_IDX, load_split
+from processing import ELEMENT_TO_IDX
 
 
 # ──────────────────────────────────────────────────────────────
@@ -354,8 +354,7 @@ if __name__ == "__main__":
 
     # Step 2: Load the specific frame
     from processing import parse_elements_from_pdb, build_edge_index_from_positions, snapshot_to_graph
-    import numpy as np
-    
+
     print(f"Loading '{seq_id}' molecule at frame {args.frame} (Source: {args.source.upper()})...")
     
     elements = parse_elements_from_pdb(pdb_path)
