@@ -1,0 +1,36 @@
+Stage 2 vs Stage 3 benchmark - AR
+====================================================================
+
+peptide            : AR  (37 atoms, split=test)
+frames generated   : 300
+Stage-3 start frame: 50   (of 9800 real MD frames)
+simulated time     : 1.50 ns at 5.0 ps/frame
+
+REFERENCE
+--------------------------------------------------------------------
+  Both stages scored against the full MD equilibrium density
+  (1960 frames, stride 5).
+
+RESULTS  (lower is better)
+--------------------------------------------------------------------
+  metric                     Stage 2     Stage 3      winner
+  KL phi                      0.0811      0.2952     Stage 2
+  KL psi                      0.0981      0.5101     Stage 2
+  JS 2-D (bits)               0.0532      0.2681     Stage 2
+
+STAGE-3 ONLY
+--------------------------------------------------------------------
+  Scores against the specific MD window it was seeded to reproduce.
+  Stage 2 has no equivalent number - it cannot be seeded.
+  KL phi vs window            0.1991
+  KL psi vs window            0.4156
+  JS 2-D vs window            0.2939
+  bond-length RMSD            0.1236  A
+  checkpoint             epoch 95, val 0.51915
+
+HOW EACH STAGE PRODUCED ITS FRAMES
+--------------------------------------------------------------------
+  Stage 2: subsampled from 1 draw(s) of its
+           native 300 frames; NOT seeded.
+           encoder = encoder.pt
+  Stage 3: autoregressive rollout seeded at MD frame 50.

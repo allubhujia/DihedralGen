@@ -1,0 +1,23 @@
+Stage 3 evaluation - AC
+============================================================
+atoms            : 24
+split            : test
+frames generated : 300  (1.50 ns simulated)
+rollout samples  : 1
+
+DISTRIBUTION (lower is better)
+  KL phi  vs full MD     : 0.2677
+  KL psi  vs full MD     : 0.2138
+  KL phi  vs MD window   : 0.2332
+  KL psi  vs MD window   : 0.1990
+  2-D Jensen-Shannon     : 0.1835 bits
+
+DYNAMICS (lower is better)
+  dihedral ACF error     : 0.0878
+
+SHORT-HORIZON TRACKING (first 20 frames, 100 ps)
+  MAD phi                : 32.44 deg
+  MAD psi                : 32.24 deg
+
+PHYSICALITY
+  bond-length RMSD       : 0.0723 A

@@ -1,0 +1,3 @@
+peptide,frames,start_frame,stage,kl_phi,kl_psi,js2d
+AT,300,50,stage2,0.143012,0.308317,0.127515
+AT,300,50,stage3,0.256102,0.149091,0.121068

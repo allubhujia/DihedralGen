@@ -1,0 +1,57 @@
+# Stage 3 Walkthrough: Cartesian EGNN Trajectory Rollout
+
+## Summary
+All 11 files in `temporal_dynamics/` are now implemented, forming a complete pipeline for Stage 3 of MolGraph-AE.
+
+## Files Implemented
+
+| File | Purpose | Status |
+|------|---------|--------|
+| [__init__.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/__init__.py) | Module docstring and pipeline instructions | ✅ Updated |
+| [config.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/config.py) | All hyperparameters: EGNN architecture, loss weights, curriculum schedule | ✅ Rewritten |
+| [adapter.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/adapter.py) | Frozen Stage-1 encoder → cached 32-D embeddings | ✅ Fixed |
+| [utils.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/utils.py) | Dihedral math + 3 new utilities (finite-diff velocity, radius edges, chirality) | ✅ Extended |
+| [dataset.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/dataset.py) | Loads positions, computes velocities, yields (t, t+1) transition pairs | ✅ Complete |
+| [model.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/model.py) | EGNN with FiLM gating, equivariant position/velocity updates | ✅ New |
+| [losses.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/losses.py) | Position MSE + velocity MSE + consistency + bond-length penalty | ✅ New |
+| [rollout.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/rollout.py) | Autoregressive inference with dynamic edge rebuilding + chirality correction | ✅ New |
+| [train.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/train.py) | Curriculum training: K=1→3→5→10→20 with scheduled sampling | ✅ New |
+| [evaluate.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/evaluate.py) | Rollout → dihedral extraction → KL divergence + MAD + Ramachandran | ✅ New |
+| [attention.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/attention.py) | Placeholder (not used — old RealNVP design) | ✅ Noted |
+
+## Data Flow
+
+```
+timewarp .npz ──→ dataset.py ──→ (pos_t, vel_t, pos_tp1, vel_tp1, z, edges)
+                                          │
+                                          ▼
+                                     model.py (EGNN)
+                                    FiLM(h, z) → K × EGNNLayer
+                                          │
+                                          ▼
+                                   (Δpos, Δvel) residuals
+                                          │
+                              ┌───────────┴───────────┐
+                              ▼                       ▼
+                         losses.py                rollout.py
+                    (L_pos + L_vel +          (autoregressive
+                     L_cons + L_bond)          1000-step inference)
+                              │                       │
+                              ▼                       ▼
+                         train.py              evaluate.py
+                    (curriculum +          (Ramachandran + KL
+                     scheduled sampling)    + MAD metrics)
+```
+
+## How to Run
+
+```bash
+# Step 1: Cache Stage-1 graph embeddings (run once)
+python -m temporal_dynamics.adapter
+
+# Step 2: Train the EGNN
+python -m temporal_dynamics.train
+
+# Step 3: Evaluate on test set
+python -m temporal_dynamics.evaluate
+```

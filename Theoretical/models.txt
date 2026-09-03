@@ -430,3 +430,46 @@ python trajectory_pre_/predict_trajectory.py --peptide WW --samples 5
 mkdir -p trajectory_pdb_files/WW
 cp trajectory_pre_/predictions/WW/* trajectory_pdb_files/WW/
 python "trajectory_analysis(main)/dihedral_comparison.py" --peptide WW
+
+#--------------------------------------------------------------------------------------------------------------------------------------------------
+
+The EGNN trains using a technique called **Curriculum Learning** combined with **Scheduled Sampling**. Instead of trying to teach the model to predict 1000 frames perfectly on day one, we start very easy and slowly make the training harder. 
+
+Based on the `config.py` file we just wrote, here are the exact values and how they work:
+
+### 1. The Curriculum (`ROLLOUT_HORIZONS = [1, 3, 5, 10, 20]`)
+The "Rollout Horizon" (K) is the number of steps the model has to predict into the future during 
+training before it gets graded by the loss function. Training is broken into 5 phases:
+
+* **Phase 1 (K=1):** The model is given the exact ground-truth frame $t$ and asked to predict frame 
+$t+1$. 
+* **Phase 2 (K=3):** The model predicts 3 steps into the future. It predicts $t+1$, feeds its own 
+prediction back into itself to predict $t+2$, and feeds *that* into itself to predict $t+3$.
+* **Phases 3, 4, 5 (K=5, 10, 20):** The model is forced to unroll further and further into the 
+future (up to 20 steps) purely on its own before receiving corrections.
+
+### 2. Time Spent on Each Phase (`EPOCHS_PER_HORIZON = 30`)
+The model spends exactly **30 epochs** on each phase. 
+Since there are 5 phases in the curriculum (`[1, 3, 5, 10, 20]`), the model trains for **150 total 
+epochs** (5 phases × 30 epochs). Once epoch 30 is done, the horizon instantly jumps from K=1 to K=3. 
+At epoch 60, it jumps to K=5, and so on.
+
+### 3. Scheduled Sampling (`MAX_SAMPLING_PROB = 0.5`)
+During the multi-step rollouts, the model needs to learn how to recover if it makes a tiny mistake. 
+If we only ever feed the model perfect ground-truth inputs, it will panic when it sees its own 
+slightly noisy predictions during the 1000-frame test.
+
+To fix this, we use Scheduled Sampling:
+* As the 150 epochs progress, we linearly increase a probability from `0.0` to `0.5` (50%).
+* At each step of the rollout, the code rolls a dice. If the dice lands under the probability 
+(e.g., 50%), the model is **forced to use its own noisy prediction from the previous step as input**.
+
+* If the dice lands above the probability, the model is given the "cheat sheet" 
+(the perfect ground-truth frame) to help guide it back on track. 
+
+### Why do it this way?
+If we trained purely on 1-step predictions (K=1), the model would memorize the data 
+but its errors would compound instantly during the 1000-frame test rollout, causing the molecule 
+to "explode". By forcing it to predict up to 20 steps ahead *during* training 
+(while injecting its own noise 50% of the time), we teach the model stability and physical 
+constraint preservation!

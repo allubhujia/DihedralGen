@@ -1,0 +1,254 @@
+# Stage 3 Implementation Plan (Revised): Cartesian Equivariant GNN Trajectory Rollout
+
+This document outlines the design and step-by-step implementation plan for **Stage 3: Continuous Trajectory Prediction**. Stage 3 models the time-evolution of dipeptides directly in Cartesian coordinates (positions and velocities) using an Equivariant Graph Neural Network (EGNN), conditioned on the frozen graph embedding $z$ from Stage 1.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Four Pre-Coding Decisions Confirmed in this Revision:**
+> 1. **Velocity Source**: The Timewarp `.npz` files do NOT store velocities. We will compute ground-truth velocities using finite differences: $x^v(t) = x^p(t+1) - x^p(t)$ with $\Delta t = 1$ frame (unitless, avoids scale issues).
+> 2. **Graph Topology**: We will use a **dynamic radius graph** rebuilt at every rollout step using `torch_cluster.radius_graph` (cutoff ~4.5 Å) with static covalent bonds always included. This is feasible because dipeptides have only ~20 atoms.
+> 3. **Single-graph Batch Fix in `adapter.py`**: The `encode_graph` call must pass an explicit `batch = torch.zeros(N, dtype=torch.long)` tensor for single-graph inference so `global_mean_pool` does not crash or return the wrong shape.
+> 4. **Additional Evaluation Metric**: We will add **Mean Absolute Deviation (MAD) on backbone dihedral trajectories** alongside KL divergence and Ramachandran overlays. This tests whether the temporal sequence is physically realistic, not just whether the marginal distribution looks correct.
+
+---
+
+## Architecture Overview
+
+```
+Timewarp .npz trajectory
+    x^p(t): [N_atoms, 3] positions (loaded directly)
+    x^v(t): [N_atoms, 3] velocities = x^p(t+1) - x^p(t)
+
+Stage-1 Encoder (frozen)
+    z: [32]  per-peptide graph embedding (cached to disk)
+
+At each step t:
+    Graph G(t):
+        - Nodes: N_atoms
+        - Node features h_i: atom-type one-hot [8] + FiLM-gated by z
+        - Equivariant channels: pos x^p_i [3], vel x^v_i [3]
+        - Edges: static covalent bonds ∪ dynamic radius graph (4.5 Å cutoff)
+
+    EGNN:
+        FiLM(h_i, z) → rescaled node features
+        K × equivariant message-passing rounds:
+            m_ij = φ_m(h_i, h_j, ||x^p_i - x^p_j||², e_ij)
+            h_i  ← φ_h(h_i, Σ_j m_ij)
+            x^p_i ← x^p_i + Σ_j (x^p_i - x^p_j) φ_x(m_ij)
+            x^v_i ← x^v_i + Σ_j (x^v_i - x^v_j) φ_v(m_ij)
+        Output head → (Δx^p, Δx^v) residuals
+
+    Next state:
+        x^p(t+1) = x^p(t) + Δx^p
+        x^v(t+1) = x^v(t) + Δx^v
+```
+
+---
+
+## Proposed Changes
+
+### 1. Configuration & Utilities
+
+#### [MODIFY] [adapter.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/adapter.py)
+Two targeted fixes:
+- **Scope fix**: `cache_all_embeddings` is already outdented to module-level (done). Remove the erroneous `cache_all_embeddings = None` line in `__main__`.
+- **Batch vector fix**: In `encode_graph`, when `batch is None`, construct `batch = torch.zeros(x.shape[0], dtype=torch.long, device=self.device)` before calling `self.encoder(...)`. Without this, `global_mean_pool` inside the Stage-1 encoder will either crash or silently pool across all atoms as if they are one batch element only.
+
+Then run: `python -m temporal_dynamics.adapter` to cache all embeddings to `temporal_dynamics/cache/embeddings.pt`.
+
+---
+
+#### [MODIFY] [config.py](file:///c:/VIT_CHENNAI/Computer_science\Internship\MolGraph-AE--main\temporal_dynamics\config.py)
+Replace the old RealNVP/dihedral/flow configuration sections entirely with EGNN parameters:
+
+```python
+# ── Graph Construction ────────────────────────────────────────────────────────
+RADIUS_CUTOFF_ANGSTROM = 4.5      # dynamic radius graph cutoff (in Å)
+
+# ── Velocity Definition ───────────────────────────────────────────────────────
+# Ground-truth: x^v(t) = x^p(t+1) - x^p(t), i.e. Δt = 1 (per-frame units)
+DELTA_T = 1.0
+
+# ── EGNN Architecture ────────────────────────────────────────────────────────
+EGNN_NUM_LAYERS    = 4      # equivariant message-passing rounds
+EGNN_HIDDEN_DIM    = 64     # invariant hidden feature dimension
+EGNN_EDGE_FEAT_DIM = 1      # edge feature = scalar distance ||x^p_i - x^p_j||
+
+# ── FiLM Conditioning ────────────────────────────────────────────────────────
+COND_DIM           = 32     # Stage-1 graph embedding dimension (read-only)
+
+# ── Loss Weights ─────────────────────────────────────────────────────────────
+LAMBDA_POS         = 1.0    # weight for position MSE
+LAMBDA_VEL         = 0.5    # weight for velocity MSE
+LAMBDA_CONSISTENCY = 0.1    # weight for position-velocity consistency penalty
+LAMBDA_BOND        = 0.1    # weight for bond-length penalty
+
+# ── Curriculum Rollout ────────────────────────────────────────────────────────
+ROLLOUT_HORIZONS   = [1, 3, 5, 10, 20]   # step horizons to cycle through
+EPOCHS_PER_HORIZON = 30                   # epochs to train before increasing K
+ROLLOUT_DISCOUNT   = 0.9                  # γ for discounted rollout loss
+MAX_SAMPLING_PROB  = 0.5                  # max scheduled sampling probability
+
+# ── Evaluation Rollout ────────────────────────────────────────────────────────
+ROLLOUT_FRAMES     = 1000   # frames to generate during inference/evaluation
+```
+
+---
+
+### 2. Data Pipeline
+
+#### [NEW] [dataset.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/dataset.py)
+`TimewarpCartesianDataset(torch.utils.data.Dataset)`:
+- Loads `cache/embeddings.pt` (pre-computed $z$ for each peptide).
+- Reads positions $x^p$ of shape `[T, N_atoms, 3]` from `.npz`.
+- Computes velocity array: `vel[t] = pos[t+1] - pos[t]` (finite difference, $\Delta t=1$).
+- For each peptide, each training sample is a pair `(state_t, state_{t+1})`:
+  ```
+  {
+    "pos_t":   [N_atoms, 3],  # x^p(t)
+    "vel_t":   [N_atoms, 3],  # x^v(t)
+    "pos_tp1": [N_atoms, 3],  # ground-truth x^p(t+1)
+    "vel_tp1": [N_atoms, 3],  # ground-truth x^v(t+1)
+    "atom_feat":[N_atoms, 8], # from Stage-1 node features
+    "z":       [32],          # frozen graph embedding
+    "edge_index_static": [2, E_bonds],  # covalent bond edges (fixed)
+    "eq_bond_lengths": [E_bonds],       # equilibrium bond lengths for L_bond
+  }
+  ```
+
+> [!NOTE]
+> **Why store `edge_index_static` separately?** Dynamic radius edges are rebuilt at runtime during rollout because atom positions change every step. Static covalent bonds never change and are always included.
+
+---
+
+### 3. Model Architecture
+
+#### [NEW] [model.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/model.py)
+
+**`FiLMLayer`** (`nn.Module`):
+```python
+# gamma, beta = Linear(z) → rescale + shift h_i before each MP round
+h_i = h_i * gamma(z) + beta(z)
+```
+
+**`EGNNLayer`** (`nn.Module`): Single equivariant message-passing round:
+- **Message**: $m_{ij} = \phi_m(h_i, h_j, \|x^p_i - x^p_j\|^2, e_{ij})$
+- **Position update**: $\delta x^p_i = \sum_j (x^p_i - x^p_j) \cdot \phi_{xp}(m_{ij})$
+- **Velocity update**: $\delta x^v_i = \sum_j (x^v_i - x^v_j) \cdot \phi_{xv}(m_{ij})$
+- **Node update**: $h_i \leftarrow \phi_h(h_i, \sum_j m_{ij})$
+
+**`CartesianEGNN`** (`nn.Module`): Full model
+1. Atom-type embedding: `nn.Embedding(num_atom_types, hidden_dim)`
+2. $K$ × (`FiLMLayer` → `EGNNLayer`)
+3. Output head → `(Δx^p, Δx^v)` residuals `[N_atoms, 3]` each
+4. Final state: `x^p(t+1) = x^p(t) + Δx^p`, `x^v(t+1) = x^v(t) + Δx^v`
+
+---
+
+### 4. Loss Formulation
+
+#### [NEW] [losses.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/losses.py)
+
+```
+L_total = λ_pos * L_pos
+        + λ_vel * L_vel
+        + λ_cons * L_consistency
+        + λ_bond * L_bond
+```
+
+**Term 1 — Position MSE:**
+$$\mathcal{L}_{pos} = \|x^p_{pred}(t+1) - x^p_{gt}(t+1)\|^2$$
+
+**Term 2 — Velocity MSE:**
+$$\mathcal{L}_{vel} = \|x^v_{pred}(t+1) - x^v_{gt}(t+1)\|^2$$
+
+**Term 3 — Derivative Consistency** (prevents velocity from diverging from position delta):
+$$\mathcal{L}_{cons} = \left\|\frac{x^p_{pred}(t+1) - x^p(t)}{\Delta t} - x^v_{pred}(t+1)\right\|^2$$
+
+**Term 4 — Bond-length Penalty** (prevents unphysical bond stretching):
+$$\mathcal{L}_{bond} = \sum_{(i,j) \in E_{covalent}} \left(\|x^p_{pred,i} - x^p_{pred,j}\| - d^{eq}_{ij}\right)^2$$
+where $d^{eq}_{ij}$ is the equilibrium distance from the PDB topology.
+
+---
+
+### 5. Training Loop
+
+#### [NEW] [train.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/train.py)
+
+**Phase 1 — One-Step Teacher Forcing** (`K = 1`):
+- Train for `EPOCHS_PER_HORIZON` epochs with `L_total`.
+- Validate one-step position MSE. Once stable, advance to Phase 2.
+
+**Phase 2 — Curriculum Rollout** (`K = 3 → 5 → 10 → 20`):
+- Unroll the model autoregressively for `K` steps.
+- At step $t$: with probability $p_{sampling}$ (linearly increasing from 0 → 0.5), feed the **model's own previous output** instead of the ground-truth state.
+- Compute discounted loss:
+  $$\mathcal{L}_{rollout} = \sum_{k=1}^{K} \gamma^k \cdot \mathcal{L}(k)$$
+  where $\gamma = 0.9$.
+- Save best checkpoint by validation one-step MSE.
+
+---
+
+### 6. Autoregressive Rollout
+
+#### [NEW] [rollout.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/rollout.py)
+`autoregressive_rollout(model, x0_pos, x0_vel, z, edge_index_static, n_frames)`:
+1. For $t = 0 \to n\_frames - 1$:
+   a. Rebuild dynamic radius graph from current `pos`.
+   b. Merge with static covalent edges → full `edge_index`.
+   c. Forward pass → `(Δx^p, Δx^v)`.
+   d. Update: `pos += Δx^p`, `vel += Δx^v`.
+   e. **Post-hoc chirality check**: Compute signed volume of chiral tetrahedra. If sign flips, revert the step and halve the update. (Continuous correction, not Metropolis accept/reject.)
+   f. Append `pos` to trajectory buffer.
+2. Return full trajectory `[n_frames, N_atoms, 3]`.
+
+---
+
+### 7. Evaluation
+
+#### [NEW] [evaluate.py](file:///c:/VIT_CHENNAI/Computer_science/Internship/MolGraph-AE--main/temporal_dynamics/evaluate.py)
+For each test peptide:
+1. Run `autoregressive_rollout(...)` for `ROLLOUT_FRAMES = 1000`.
+2. Extract backbone $(\phi, \psi)$ from generated positions using `utils.extract_phi_psi_from_positions`.
+3. Compute and report:
+
+| Metric | What it Measures |
+|---|---|
+| **Ramachandran Overlay** | Marginal distribution of $(\phi, \psi)$ conformational basins |
+| **Per-Angle KL Divergence** | How closely the predicted $\phi$ and $\psi$ distributions match GT |
+| **MAD on Backbone Dihedral Trajectory** | Whether the *temporal sequence* of $(\phi, \psi)$ values changes at a physically realistic rate. Measures $\frac{1}{T}\sum_t \|\phi_{pred}(t) - \phi_{gt}(t)\|$ |
+
+> [!NOTE]
+> MAD on the temporal sequence is what distinguishes Stage 3 from Stage 2. Stage 2 can match the marginal distribution but has no notion of physically realistic transition rates or ordering. A low MAD proves Stage 3 is simulating actual dynamics, not just sampling from the equilibrium distribution.
+
+---
+
+## Execution Order
+
+```
+Step 1 → Fix & run adapter.py         → generates cache/embeddings.pt
+Step 2 → Rewrite config.py            → EGNN hyperparameters locked in
+Step 3 → Implement dataset.py         → positions + finite-diff velocities
+Step 4 → Implement model.py           → FiLM + EGNN layers
+Step 5 → Implement losses.py          → MSE + consistency + bond penalties
+Step 6 → Implement rollout.py         → autoregressive inference
+Step 7 → Implement train.py           → curriculum + scheduled sampling
+Step 8 → Implement evaluate.py        → Ramachandran + KL + MAD
+```
+
+---
+
+## Verification Plan
+
+### Automated
+- `python -m temporal_dynamics.adapter` — verify embedding cache is created.
+- `python -m temporal_dynamics.train` — monitor curriculum loss curves.
+- `python -m temporal_dynamics.evaluate` — validate Ramachandran + KL + MAD metrics.
+
+### Manual
+- Inspect generated trajectories in py3Dmol (check bonds are not stretched, no chirality inversions).
+- Verify Ramachandran basin profiles equal or exceed Stage 2 quality.
+- Confirm MAD on dihedral trajectory decreases as curriculum horizon increases.
